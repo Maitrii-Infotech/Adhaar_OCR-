@@ -28,14 +28,16 @@ class TesseractEngine(OCREngine):
         super().__init__(languages)
         self.engine_name = "tesseract"
         
-          # Default config
+        # Default config
         self.config = r'--oem 3 --psm 6'
+        
+        # Multiple configs for better results
         self.configs = {
-        'default': r'--oem 3 --psm 6',
-        'mixed_text': r'--oem 3 --psm 6 -c preserve_interword_spaces=1',
-        'numbers_focus': r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789 /',
-        'clean_text': r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-:., \'()'
-    }
+            'default': r'--oem 3 --psm 6',
+            'mixed_text': r'--oem 3 --psm 6 -c preserve_interword_spaces=1',
+            'numbers_focus': r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789 /',
+            'clean_text': r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-:., \'()'
+        }
         
         # Language mapping for Tesseract
         self.lang_map = {
