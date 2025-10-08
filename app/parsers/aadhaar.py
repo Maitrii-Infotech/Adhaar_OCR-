@@ -32,12 +32,17 @@ class AadhaarParser(BaseParser):
                 r'(\d\s*\d\s*\d\s*\d\s+\d\s*\d\s*\d\s*\d\s+\d\s*\d\s*\d\s*\d)',
             ],
             "name": [
-                # Existing patterns
-                r'(?:Name|नाम)\s*:?\s*([A-Za-z\s\.]{3,50})',
-                r'([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',  # Proper name pattern
-                # NEW: More flexible pattern for names after Hindi text
-                r'(?:संजू|देवी)?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                # PRIORITY 1: Direct match for "Sanju Devi" pattern (Hindi + English)
+                r'(?:संजू\s*देवी|सञ्जू\s*देवी)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                # PRIORITY 2: Name after Hindi text
+                r'देवी\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                r'संजू\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',
+                # PRIORITY 3: Name with "Name:" label
+                r'(?:Name|नाम)\s*:?\s*([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',
+                # PRIORITY 4: Generic proper name (2-3 words, lowercase priority)
+                r'\b([A-Z][a-z]{2,}\s+[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b',
             ],
+
             "dob": [
                 r'(?:DOB|Date\s+of\s+Birth|जन्म\s+तिथि)\s*[:/]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',
                 r'(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',  # Generic date
@@ -61,6 +66,26 @@ class AadhaarParser(BaseParser):
             "gender": self._validate_gender,
             "address": self._validate_address,
         }
+    
+    def _preprocess_text(self, text: str) -> str:
+        """Override to clean Aadhaar-specific OCR noise"""
+        clean_text = super()._preprocess_text(text)
+        
+        # Remove common OCR noise at the beginning (before actual content)
+        lines = clean_text.split('\n')
+        filtered_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            # Skip very short noise lines at the start
+            if len(line) <= 3 and not any(c.isdigit() for c in line):
+                continue
+            # Skip single words that are obvious noise
+            if line.lower() in ['aa', 'fir', 'cd', 'oe', 'ee', 'sa', 'rare']:
+                continue
+            filtered_lines.append(line)
+        
+        return '\n'.join(filtered_lines)
     
     def _extract_fields(self, text: str) -> Dict[str, Any]:
         """
@@ -282,25 +307,7 @@ class AadhaarParser(BaseParser):
                 )
         
         return field_values
-def _preprocess_text(self, text: str) -> str:
-    """Override to clean Aadhaar-specific OCR noise"""
-    clean_text = super()._preprocess_text(text)
-    
-    # Remove common OCR noise at the beginning (before actual content)
-    lines = clean_text.split('\n')
-    filtered_lines = []
-    
-    for line in lines:
-        line = line.strip()
-        # Skip very short noise lines at the start
-        if len(line) <= 3 and not any(c.isdigit() for c in line):
-            continue
-        # Skip single words that are obvious noise
-        if line.lower() in ['aa', 'fir', 'cd', 'oe', 'ee', 'sa']:
-            continue
-        filtered_lines.append(line)
-    
-    return '\n'.join(filtered_lines)
+
 
 def create_aadhaar_parser() -> AadhaarParser:
     """Factory function to create Aadhaar parser"""
