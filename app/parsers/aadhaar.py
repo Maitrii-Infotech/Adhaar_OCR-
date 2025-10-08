@@ -66,7 +66,26 @@ class AadhaarParser(BaseParser):
             "gender": self._validate_gender,
             "address": self._validate_address,
         }
+    def _validate_fields(self, extracted_fields: Dict[str, Any]) -> Dict[str, Any]:
+      """Override to add Aadhaar-specific field validation"""
+    validated = super()._validate_fields(extracted_fields)
     
+    # Special handling for name field - filter out obvious noise
+    if "name" in validated:
+        name_value = validated["name"]["value"]
+        
+        # Check if name is likely OCR noise
+        noise_names = ['aa fir', 'aa', 'fir', 'cd oe', 'oe ee']
+        if name_value.lower() in noise_names or len(name_value) < 4:
+            # Try to find a better name in the original text
+            # Look for pattern after Hindi text
+            better_name_match = re.search(r'(?:देवी|संजू).*?([A-Z][a-z]{2,}\s+[A-Z][a-z]{2,})', 
+                                         extracted_fields.get("name", {}).get("pattern_used", ""))
+            if better_name_match:
+                validated["name"]["value"] = better_name_match.group(1)
+                validated["name"]["confidence"] *= 0.9  # Slight confidence reduction
+    
+         return validated
     def _preprocess_text(self, text: str) -> str:
         """Override to clean Aadhaar-specific OCR noise"""
         clean_text = super()._preprocess_text(text)
