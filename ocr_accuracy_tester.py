@@ -1,4 +1,4 @@
-/# ocr_accuracy_tester.py
+# ocr_accuracy_tester.py
 """
 Practical OCR accuracy testing that integrates with your existing system
 Save this file and run it to test different OCR configurations
