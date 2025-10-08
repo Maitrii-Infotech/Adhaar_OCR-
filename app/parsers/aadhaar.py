@@ -22,26 +22,32 @@ class AadhaarParser(BaseParser):
         """Regex patterns for Aadhaar field extraction"""
         return {
             "aadhaar_number": [
-                r'(\d{4}\s+\d{4}\s+\d{4})',  # Spaced format: 1234 5678 9012
-                r'(\d{12})',  # Continuous format: 123456789012
-                r'(?:Aadhaar|UID)\s*(?:No|Number|#)?\s*:?\s*(\d{4}\s+\d{4}\s+\d{4})',
+                # NEW: More flexible patterns for various OCR outputs
+                r'(\d{4}\s+\d{4}\s+\d{4})',  # Standard spaced: 1234 5678 9012
+                r'(\d{4}\s*\d{4}\s*\d{4})',  # Variable spacing
+                r'(\d{12})',  # Continuous: 123456789012
+                r'(?:Aadhaar|UID|आधार)\s*(?:No|Number|#|नंबर)?\s*:?\s*(\d{4}\s+\d{4}\s+\d{4})',
+                r'(?:Aadhaar|UID|आधार)\s*(?:No|Number|#|नंबर)?\s*:?\s*(\d{12})',
+                # NEW: Pattern for numbers that might have OCR noise
+                r'(\d\s*\d\s*\d\s*\d\s+\d\s*\d\s*\d\s*\d\s+\d\s*\d\s*\d\s*\d)',
             ],
             "name": [
-                r'Name\s*:?\s*([A-Za-z\s\.]{3,50})',
+                # Existing patterns
+                r'(?:Name|नाम)\s*:?\s*([A-Za-z\s\.]{3,50})',
                 r'([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)',  # Proper name pattern
+                # NEW: More flexible pattern for names after Hindi text
+                r'(?:संजू|देवी)?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)',
             ],
             "dob": [
-                r'DOB\s*:?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',
-                r'Date\s+of\s+Birth\s*:?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',
-                r'(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',  # Generic date pattern
+                r'(?:DOB|Date\s+of\s+Birth|जन्म\s+तिथि)\s*[:/]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',
+                r'(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})',  # Generic date
             ],
             "gender": [
-                r'Gender\s*:?\s*(Male|Female|M|F)',
-                r'Sex\s*:?\s*(Male|Female|M|F)',
-                r'\b(Male|Female|MALE|FEMALE)\b',
+                r'(?:Gender|Sex|लिंग|महिला|पुरुष)\s*:?\s*(Male|Female|M|F|महिला|पुरुष|MALE|FEMALE)',
+                r'\b(Male|Female|MALE|FEMALE|महिला|पुरुष)\b',
             ],
             "address": [
-                r'Address\s*:?\s*([A-Za-z0-9\s\,\.\-\/]{15,200})',
+                r'(?:Address|पता)\s*:?\s*([A-Za-z0-9\s\,\.\-\/]{15,200})',
                 r'([A-Za-z0-9\s\,\.\-\/]*\d{6}[A-Za-z0-9\s\,\.\-\/]*)',  # Pattern with pincode
             ]
         }
@@ -56,6 +62,48 @@ class AadhaarParser(BaseParser):
             "address": self._validate_address,
         }
     
+    def _extract_fields(self, text: str) -> Dict[str, Any]:
+        """
+        Override extract_fields to add special handling for Aadhaar numbers
+        """
+        # First, try standard extraction
+        extracted = super()._extract_fields(text)
+        
+        # NEW: If Aadhaar number not found, try aggressive extraction
+        if "aadhaar_number" not in extracted:
+            aadhaar_aggressive = self._extract_aadhaar_aggressive(text)
+            if aadhaar_aggressive:
+                extracted["aadhaar_number"] = aadhaar_aggressive
+        
+        return extracted
+    
+    def _extract_aadhaar_aggressive(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Aggressive Aadhaar number extraction for difficult OCR cases
+        
+        Looks for any sequence of 12 digits, even with noise/spaces
+        """
+        # Remove all non-digit and non-space characters
+        cleaned = re.sub(r'[^\d\s]', '', text)
+        
+        # Find all sequences of digits with optional spaces
+        digit_sequences = re.findall(r'\d[\s\d]{10,}\d', cleaned)
+        
+        for sequence in digit_sequences:
+            # Extract only digits
+            digits_only = re.sub(r'\s', '', sequence)
+            
+            if len(digits_only) == 12:
+                # Found a 12-digit sequence
+                logger.info(f"Aggressive extraction found potential Aadhaar: {digits_only[:4]}****{digits_only[-4:]}")
+                return {
+                    "raw_value": f"{digits_only[:4]} {digits_only[4:8]} {digits_only[8:12]}",
+                    "pattern_used": "aggressive_extraction",
+                    "confidence": 0.6  # Lower confidence for aggressive extraction
+                }
+        
+        return None
+    
     def _validate_aadhaar_number(self, aadhaar_str: str) -> Tuple[bool, str, float]:
         """
         Validate Aadhaar number using Verhoeff algorithm
@@ -63,20 +111,25 @@ class AadhaarParser(BaseParser):
         Returns:
             Tuple of (is_valid, masked_number, confidence_score)
         """
-        # Clean the number
-        clean_number = re.sub(r'\s+', '', aadhaar_str.strip())
+        # Clean the number - remove all spaces and non-digits
+        clean_number = re.sub(r'\D', '', aadhaar_str.strip())
         
-        if len(clean_number) != 12 or not clean_number.isdigit():
+        if len(clean_number) != 12:
+            return False, aadhaar_str, 0.0
+        
+        if not clean_number.isdigit():
             return False, aadhaar_str, 0.0
         
         # Verhoeff algorithm validation
         if self._verhoeff_validate(clean_number):
             # Mask the number (show only last 4 digits)
             masked = f"XXXX XXXX {clean_number[-4:]}"
+            logger.info(f"Aadhaar validated successfully: {masked}")
             return True, masked, 1.0
         else:
             # Invalid checksum but could be OCR error
             masked = f"XXXX XXXX {clean_number[-4:]}"
+            logger.warning(f"Aadhaar checksum failed but keeping: {masked}")
             return False, masked, 0.6
     
     def _verhoeff_validate(self, number: str) -> bool:
@@ -133,9 +186,10 @@ class AadhaarParser(BaseParser):
         """Validate and normalize gender"""
         gender_str = gender_str.strip().upper()
         
-        if gender_str in ['M', 'MALE']:
+        # Handle both English and Hindi
+        if gender_str in ['M', 'MALE', 'पुरुष']:
             return True, 'MALE', 0.95
-        elif gender_str in ['F', 'FEMALE']:
+        elif gender_str in ['F', 'FEMALE', 'महिला']:
             return True, 'FEMALE', 0.95
         else:
             return False, gender_str, 0.3

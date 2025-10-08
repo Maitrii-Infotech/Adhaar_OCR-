@@ -18,6 +18,14 @@ except ImportError:
     TESSERACT_AVAILABLE = False
     logger.warning("Tesseract engine not available")
 
+# Import enhanced preprocessing
+try:
+    from .enhanced_ocr_configs import ImagePreprocessor as EnhancedPreprocessor
+    ENHANCED_PREPROCESSING_AVAILABLE = True
+except ImportError:
+    ENHANCED_PREPROCESSING_AVAILABLE = False
+    logger.warning("Enhanced preprocessing not available")
+
 # PaddleOCR is optional for now
 PADDLEOCR_AVAILABLE = False
 
@@ -28,13 +36,22 @@ class OCRManager:
     def __init__(self, 
                  languages: List[str] = None,
                  preferred_engine: str = "tesseract",
-                 enable_preprocessing: bool = True):
+                 enable_preprocessing: bool = True,
+                 preprocessing_mode: str = "high_contrast"):  # NEW: Default to high_contrast
         
         self.languages = languages or ["eng", "hin"]
         self.preferred_engine = preferred_engine
         self.enable_preprocessing = enable_preprocessing
+        self.preprocessing_mode = preprocessing_mode  # NEW: Store preprocessing mode
         self.engines: Dict[str, OCREngine] = {}
         self.preprocessor = OCRPreprocessor()
+        
+        # NEW: Initialize enhanced preprocessor if available
+        if ENHANCED_PREPROCESSING_AVAILABLE:
+            self.enhanced_preprocessor = EnhancedPreprocessor()
+            logger.info(f"Enhanced preprocessing enabled with mode: {preprocessing_mode}")
+        else:
+            self.enhanced_preprocessor = None
         
         # Initialize available engines
         self._initialize_engines()
@@ -57,17 +74,6 @@ class OCRManager:
                 logger.error(f"Failed to initialize Tesseract: {e}")
         else:
             logger.warning("Tesseract module not available")
-        
-        # TODO: Add PaddleOCR when needed
-        # if PADDLEOCR_AVAILABLE:
-        #     try:
-        #         paddleocr_engine = create_paddleocr_engine(self.languages)
-        #         if paddleocr_engine.is_available():
-        #             self.engines["paddleocr"] = paddleocr_engine
-        #             engines_loaded += 1
-        #             logger.info("PaddleOCR engine initialized")
-        #     except Exception as e:
-        #         logger.error(f"Failed to initialize PaddleOCR: {e}")
         
         if engines_loaded == 0:
             logger.error("No OCR engines available! Please install Tesseract.")
@@ -105,7 +111,8 @@ class OCRManager:
     def extract_text(self, 
                     image: np.ndarray, 
                     engine_name: Optional[str] = None,
-                    fallback_on_failure: bool = True) -> OCRResult:
+                    fallback_on_failure: bool = True,
+                    preprocessing_mode: Optional[str] = None) -> OCRResult:  # NEW: Allow override
         """
         Extract text from image using specified or best available engine
         
@@ -113,6 +120,7 @@ class OCRManager:
             image: Input image as numpy array (BGR format)
             engine_name: Specific engine to use (None for auto-selection)
             fallback_on_failure: Try other engines if primary fails
+            preprocessing_mode: Override preprocessing mode ('default', 'high_contrast', 'aadhaar', None)
             
         Returns:
             OCRResult with extracted text and metadata
@@ -130,7 +138,26 @@ class OCRManager:
         
         if self.enable_preprocessing:
             try:
-                processed_image, preprocessing_metadata = self.preprocessor.preprocess_image(image)
+                # NEW: Use enhanced preprocessing if available
+                mode = preprocessing_mode or self.preprocessing_mode
+                
+                if self.enhanced_preprocessor and mode in ['high_contrast', 'aadhaar']:
+                    # Use enhanced preprocessing
+                    if mode == 'high_contrast':
+                        processed_image = self.enhanced_preprocessor._enhance_high_contrast(image)
+                        preprocessing_metadata['method'] = 'enhanced_high_contrast'
+                    elif mode == 'aadhaar':
+                        processed_image = self.enhanced_preprocessor.enhance_for_ocr(image, 'aadhaar')
+                        preprocessing_metadata['method'] = 'enhanced_aadhaar'
+                    
+                    # Calculate quality metrics
+                    preprocessing_metadata['mode'] = mode
+                    logger.info(f"Applied enhanced preprocessing: {mode}")
+                else:
+                    # Use standard preprocessing
+                    processed_image, preprocessing_metadata = self.preprocessor.preprocess_image(image)
+                    preprocessing_metadata['method'] = 'standard'
+                
                 logger.debug(f"Image preprocessing completed: {preprocessing_metadata}")
             except Exception as e:
                 logger.warning(f"Image preprocessing failed: {e}")
@@ -231,7 +258,16 @@ class OCRManager:
         preprocessing_metadata = {}
         if self.enable_preprocessing:
             try:
-                processed_image, preprocessing_metadata = self.preprocessor.preprocess_image(image)
+                # NEW: Use enhanced preprocessing with configured mode
+                if self.enhanced_preprocessor and self.preprocessing_mode in ['high_contrast', 'aadhaar']:
+                    if self.preprocessing_mode == 'high_contrast':
+                        processed_image = self.enhanced_preprocessor._enhance_high_contrast(image)
+                    else:
+                        processed_image = self.enhanced_preprocessor.enhance_for_ocr(image, self.preprocessing_mode)
+                    preprocessing_metadata['method'] = f'enhanced_{self.preprocessing_mode}'
+                else:
+                    processed_image, preprocessing_metadata = self.preprocessor.preprocess_image(image)
+                    preprocessing_metadata['method'] = 'standard'
             except Exception as e:
                 logger.warning(f"Image preprocessing failed: {e}")
                 preprocessing_metadata = {"error": str(e)}
@@ -296,6 +332,8 @@ class OCRManager:
             "available_engines": self.get_available_engines(),
             "preferred_engine": self.preferred_engine,
             "preprocessing_enabled": self.enable_preprocessing,
+            "preprocessing_mode": self.preprocessing_mode,  # NEW
+            "enhanced_preprocessing": ENHANCED_PREPROCESSING_AVAILABLE,  # NEW
             "languages": self.languages,
             "health": "healthy" if self.engines else "no_engines",
             "engine_details": self.get_engine_info()
@@ -308,23 +346,31 @@ _ocr_manager: Optional[OCRManager] = None
 
 def get_ocr_manager(languages: List[str] = None, 
                    preferred_engine: str = "tesseract",
-                   enable_preprocessing: bool = True) -> OCRManager:
+                   enable_preprocessing: bool = True,
+                   preprocessing_mode: str = "high_contrast") -> OCRManager:  # NEW: Default to high_contrast
     """
     Get global OCR manager instance (singleton pattern)
+    
+    Args:
+        languages: List of language codes (default: ["eng", "hin"])
+        preferred_engine: Preferred OCR engine (default: "tesseract")
+        enable_preprocessing: Enable image preprocessing (default: True)
+        preprocessing_mode: Preprocessing mode - 'default', 'high_contrast', or 'aadhaar' (default: 'high_contrast')
     
     Returns:
         Global OCRManager instance
     """
     global _ocr_manager
     if _ocr_manager is None:
-        _ocr_manager = OCRManager(languages, preferred_engine, enable_preprocessing)
+        _ocr_manager = OCRManager(languages, preferred_engine, enable_preprocessing, preprocessing_mode)
         logger.debug("Created new OCR manager instance")
     return _ocr_manager
 
 
 def extract_text_from_image(image: np.ndarray, 
                            engine: str = None,
-                           languages: List[str] = None) -> OCRResult:
+                           languages: List[str] = None,
+                           preprocessing_mode: str = "high_contrast") -> OCRResult:  # NEW
     """
     Convenience function for OCR text extraction
     
@@ -332,11 +378,12 @@ def extract_text_from_image(image: np.ndarray,
         image: Input image as numpy array
         engine: Specific engine to use (None for auto-selection)
         languages: Languages to use (None for default eng+hin)
+        preprocessing_mode: Preprocessing mode to use
         
     Returns:
         OCRResult with extracted text and metadata
     """
-    manager = get_ocr_manager(languages=languages)
+    manager = get_ocr_manager(languages=languages, preprocessing_mode=preprocessing_mode)
     return manager.extract_text(image, engine_name=engine)
 
 

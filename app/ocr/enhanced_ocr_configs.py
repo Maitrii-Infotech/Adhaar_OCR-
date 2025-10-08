@@ -9,19 +9,8 @@ import numpy as np
 from typing import Dict, List, Tuple, Any
 from PIL import Image, ImageEnhance, ImageFilter
 import cv2
-from app.ocr.enhanced_ocr_configs import ImagePreprocessor
-import cv2
 
 logger = logging.getLogger(__name__)
-# Load image
-image = cv2.imread("your_aadhaar.png")
-
-# Apply Aadhaar-specific enhancement
-preprocessor = ImagePreprocessor()
-enhanced = preprocessor.enhance_for_ocr(image, enhancement_type='aadhaar')
-
-# Save to see the difference
-cv2.imwrite("aadhaar_enhanced.png", enhanced)
 
 class EnhancedOCRConfigs:
     """Enhanced OCR configurations for different document types and text regions"""

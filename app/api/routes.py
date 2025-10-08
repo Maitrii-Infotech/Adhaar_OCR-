@@ -254,7 +254,9 @@ async def _process_with_real_ocr_and_parsing(
             ocr_result = ocr_manager.extract_text(
                 primary_image,
                 engine_name=None,  # Auto-select best engine
-                fallback_on_failure=True
+                fallback_on_failure=True,
+                preprocessing_mode='high_contrast'
+
             )
             
             if not ocr_result.text.strip():
