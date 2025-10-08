@@ -28,16 +28,15 @@ class TesseractEngine(OCREngine):
         super().__init__(languages)
         self.engine_name = "tesseract"
         
-        # Default config
-        self.config = r'--oem 3 --psm 6'
+        self.config = r'--oem 3 --psm 11'  # Sparse text - better for Aadhaar cards
         
         # Multiple configs for better results
         self.configs = {
-            'default': r'--oem 3 --psm 6',
-            'mixed_text': r'--oem 3 --psm 6 -c preserve_interword_spaces=1',
-            'numbers_focus': r'--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789 /',
-            'clean_text': r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz/-:., \'()'
-        }
+        'default': r'--oem 3 --psm 11',  # Changed from 6 to 11
+        'mixed_text': r'--oem 3 --psm 11 -c preserve_interword_spaces=1',
+        'numbers_focus': r'--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789 /',
+        'clean_text': r'--oem 3 --psm 11'
+}
         
         # Language mapping for Tesseract
         self.lang_map = {

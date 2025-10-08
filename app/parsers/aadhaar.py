@@ -282,7 +282,25 @@ class AadhaarParser(BaseParser):
                 )
         
         return field_values
-
+def _preprocess_text(self, text: str) -> str:
+    """Override to clean Aadhaar-specific OCR noise"""
+    clean_text = super()._preprocess_text(text)
+    
+    # Remove common OCR noise at the beginning (before actual content)
+    lines = clean_text.split('\n')
+    filtered_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        # Skip very short noise lines at the start
+        if len(line) <= 3 and not any(c.isdigit() for c in line):
+            continue
+        # Skip single words that are obvious noise
+        if line.lower() in ['aa', 'fir', 'cd', 'oe', 'ee', 'sa']:
+            continue
+        filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines)
 
 def create_aadhaar_parser() -> AadhaarParser:
     """Factory function to create Aadhaar parser"""

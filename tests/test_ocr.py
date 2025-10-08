@@ -19,8 +19,8 @@ print("=== Testing with High Contrast Preprocessing ===\n")
 preprocessor = ImagePreprocessor()
 enhanced = preprocessor._enhance_high_contrast(image)
 
-# Get OCR manager (disable preprocessing since we already enhanced the image)
-manager = get_ocr_manager(preprocessing_mode='high_contrast', enable_preprocessing=False)
+# Get OCR manager
+manager = get_ocr_manager(preprocessing_mode='high_contrast')
 
 # Run OCR on enhanced image
 ocr_result = manager.extract_text(enhanced)
